@@ -1,0 +1,178 @@
+#include <SoftwareSerial.h>
+SoftwareSerial sim(7, 8);
+int _timeout;
+String _buffer;
+String number = ""; //-> change with your number //0933999134
+///////////////////////////////////
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+//////////////////////////////////////
+#include<dht.h>
+dht DHT_u;
+dht DHT_d;
+int temp,hum;
+int temp_u,hum_u;
+int temp_d,hum_d;
+#define DHT11_PIN_up 2
+#define DHT11_PIN_down 3
+#define gas_pin 4
+#define flame1_pin 5
+#define flame2_pin 6
+// 7 and 8 for gsm
+#define buzz 11
+
+int f1,f2,gas;
+/////////////////////////////////
+unsigned long m=0,a=0;
+bool sms__=false,call__=false;
+
+void setup() {
+  //delay for 7 seconds to make sure the modules get the signal
+  delay(7000); 
+  Serial.begin(9600);
+  _buffer.reserve(50);
+  sim.begin(9600);
+  delay(1000);
+  
+  pinMode(gas_pin,INPUT);
+  pinMode(flame1_pin,INPUT);
+  pinMode(flame2_pin,INPUT);
+  pinMode(buzz,OUTPUT);
+  
+  lcd.begin();
+  lcd.backlight();
+  lcd.clear();
+
+}
+void loop() {
+          
+    if(millis()-m>3000){
+      read_sensor();
+      read_temp_hum();
+      show();
+      m=millis();
+    }
+    
+    send_alarm();  
+    if(gas){
+      digitalWrite(buzz,1);
+      delay(50);
+      digitalWrite(buzz,0);
+      delay(50);
+    }
+
+  delay(10);
+}
+
+void send_alarm(){
+  if((f1 || f2 || gas|| temp>40) && (millis()-a<10000)){
+    if(f1 || f2 || gas){
+      if(!call__){
+         Serial.println("call");
+          callNumber();
+          //SendMessage();
+          call__=true;
+      }  
+    }
+    if(temp>40){
+      if(!sms__){
+        Serial.println("sms");
+          SendMessage();
+           sms__=true;
+      }
+    }
+  }
+  else{
+    a=millis();
+    sms__=false;
+    call__=false;
+  }
+}
+void read_sensor(){
+  
+  f1=digitalRead(flame1_pin);
+  f2=!digitalRead(flame2_pin);
+  gas=!digitalRead(gas_pin);
+  //Serial.println(String(f1)+" "+String(f2)+" "+String(gas));
+}
+void read_temp_hum(){
+      DHT_u.read11(DHT11_PIN_up);
+      DHT_d.read11(DHT11_PIN_down);
+      
+      temp_u=DHT_u.temperature;
+      hum_u=DHT_u.humidity;
+      
+      temp_d=DHT_d.temperature;
+      hum_d=DHT_d.humidity;
+
+      temp=temp_u+temp_d;
+      temp=temp/2;
+
+      hum=hum_u+hum_d;
+      hum=hum/2;
+      //Serial.println(String(temp_u)+" "+String(temp_d)+" "+String(hum_u)+" "+String(hum_d)+" ");
+}
+
+
+void show(){
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("T: ");
+    lcd.print(temp);
+    lcd.setCursor(6,0);
+    lcd.print("C");
+    lcd.setCursor(9,0);
+    lcd.print("H: ");
+    lcd.print(hum);
+    lcd.setCursor(14,0);
+    lcd.print("%");  
+    /////
+    lcd.setCursor(0,1);
+    lcd.print("G:");
+    if(gas) lcd.print("Alarm");
+    else lcd.print("Good ");
+    lcd.setCursor(9,1);
+    lcd.print("F:");
+    if(f1 || f2) lcd.print("Alarm");
+    else lcd.print("Good ");
+}
+
+void SendMessage(){
+  sim.println("AT+CMGF=1");    //Sets the GSM Module in Text Mode
+  delay(1000);
+  sim.println("AT+CSCS=\"GSM\"");
+  delay(1000);
+  sim.println("AT+CSMP=17،167،0،16");
+  delay(1000);
+  sim.println("AT+CMGS=\"" + number + "\"\r"); //Mobile phone number to send message
+  delay(1000);
+  String SMS =" test";
+  sim.println(SMS);
+  delay(100);
+  sim.println((char)26);// ASCII code of CTRL+Z
+  delay(1000);
+  _buffer = _readSerial();
+}
+
+
+String _readSerial() {
+  _timeout = 0;
+  while  (!sim.available() && _timeout < 12000  )
+  {
+    delay(13);
+    _timeout++;
+  }
+  if (sim.available()) {
+    return sim.readString();
+  }
+}
+
+void callNumber() {
+
+  sim.print (F("ATD"));
+  sim.print (number);
+  sim.print (F(";\r\n"));
+  _buffer = _readSerial();
+  Serial.println(_buffer);
+}
